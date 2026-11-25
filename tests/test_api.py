@@ -211,6 +211,42 @@ def test_filtering(client, catalogue):
         request(client, "GET", "/recipes", 422, params=invalid)
 
 
+def test_reassigning_recipe_updates_author_lists_and_title_scope(client, catalogue):
+    author, category, _, recipe = catalogue
+    other = create(client, "authors", name="Other", email="other@example.com")
+    original_fields = recipe_data(author["id"], category_id=category["id"])
+    replacement = {**original_fields, "author_id": other["id"]}
+    path = f"/recipes/{recipe['id']}"
+
+    moved = request(client, "PUT", path, 200, json=replacement)
+    assert moved["author_id"] == other["id"]
+    assert request(client, "GET", f"/authors/{author['id']}/recipes", 200) == []
+    assert request(client, "GET", f"/authors/{other['id']}/recipes", 200) == [moved]
+    create(client, "recipes", **original_fields)
+    request(client, "POST", "/recipes", 409, json=replacement)
+
+
+def test_shared_ingredient_has_independent_links(client, catalogue):
+    author, _, ingredient, recipe = catalogue
+    second = create(client, "recipes", **recipe_data(author["id"], title="Tomato Soup"))
+    first_path = f"/recipes/{recipe['id']}"
+    second_link_path = f"/recipes/{second['id']}/ingredients"
+    ingredient_id = ingredient["id"]
+    request(client, "POST", f"{first_path}/ingredients", 201,
+            json={"ingredient_id": ingredient_id, "quantity": 2, "unit": "pcs"})
+    second_link = request(client, "POST", second_link_path, 201,
+                          json={"ingredient_id": ingredient_id, "quantity": 150, "unit": "g"})
+    request(client, "PUT", f"{first_path}/ingredients/{ingredient_id}", 200,
+            json={"quantity": 3.5, "unit": "pcs"})
+    assert request(client, "GET", second_link_path, 200) == [second_link]
+
+    request(client, "DELETE", first_path, 204)
+    assert request(client, "GET", second_link_path, 200) == [second_link]
+    request(client, "DELETE", f"/ingredients/{ingredient_id}", 409)
+    request(client, "DELETE", f"{second_link_path}/{ingredient_id}", 204)
+    request(client, "DELETE", f"/ingredients/{ingredient_id}", 204)
+
+
 def test_scaling_is_read_only(client, catalogue):
     _, _, ingredient, recipe = catalogue
     base = f"/recipes/{recipe['id']}"
@@ -267,6 +303,30 @@ def test_foreign_key_enforcement(client, database, catalogue):
                 conn.exec_driver_sql(sql, values)
             conn.rollback()
         assert conn.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+
+
+@pytest.mark.parametrize("statement,values", [
+    ("UPDATE recipes SET servings = ?", (0,)),
+    ("UPDATE recipes SET preparation_time = ?", (1.5,)),
+    ("UPDATE recipe_ingredients SET quantity = ?", (0,)),
+    ("UPDATE recipe_ingredients SET quantity = ?", (float("inf"),)),
+    ("UPDATE recipe_ingredients SET unit = ?", ("kg",)),
+    ("INSERT INTO recipe_ingredients (recipe_id, ingredient_id, quantity, unit) "
+     "SELECT recipe_id, ingredient_id, quantity, unit FROM recipe_ingredients", ()),
+    ("INSERT INTO categories (name, normalized_name) VALUES (?, ?)", ("SALADS", "salads")),
+])
+def test_sqlite_rejects_invalid_data(client, database, catalogue, statement, values):
+    _, _, ingredient, recipe = catalogue
+    link_path = f"/recipes/{recipe['id']}/ingredients"
+    link = request(client, "POST", link_path, 201,
+                   json={"ingredient_id": ingredient["id"], "quantity": 2, "unit": "pcs"})
+
+    with pytest.raises(IntegrityError), database.begin() as connection:
+        connection.exec_driver_sql(statement, values)
+
+    assert request(client, "GET", f"/recipes/{recipe['id']}", 200) == {
+        **recipe, "ingredients": [link],
+    }
 
 
 def test_openapi_and_swagger(client):
