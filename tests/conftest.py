@@ -1,4 +1,5 @@
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from alembic import command
 from alembic.config import Config
@@ -14,10 +15,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
-def migration_config(tmp_path):
-    config = Config(str(ROOT / "alembic.ini"))
-    config.set_main_option("sqlalchemy.url", f"sqlite:///{(tmp_path / 'catalogue.db').as_posix()}")
-    return config
+def migration_config():
+    # A fresh directory avoids reusing a pytest temp folder owned by another account.
+    with TemporaryDirectory(prefix="recipe-api-tests-") as directory:
+        database_path = (Path(directory) / "catalogue.db").as_posix()
+        config = Config(str(ROOT / "alembic.ini"))
+        config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
+        yield config
 
 
 @pytest.fixture
