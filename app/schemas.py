@@ -2,7 +2,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StringConstraints, field_validator
 
-from app.models import Unit
+from app.models import Difficulty, Unit
 
 
 NonBlankText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -89,6 +89,7 @@ class RecipeFields(BaseModel):
     instructions: NonBlankText = Field(examples=["Slice the tomatoes and toss with salt."])
     preparation_time: PositiveInteger = Field(description="Preparation time in minutes", examples=[10])
     servings: PositiveInteger = Field(examples=[2])
+    difficulty: Difficulty = Field(examples=["easy"])
     author_id: PositiveInteger = Field(examples=[1])
     category_id: PositiveInteger | None = Field(default=None, examples=[1])
 

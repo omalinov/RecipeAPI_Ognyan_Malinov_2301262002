@@ -23,6 +23,7 @@ def recipe_data(author_id, **changes):
         "instructions": "Slice and toss.",
         "preparation_time": 10,
         "servings": 4,
+        "difficulty": "easy",
         "author_id": author_id,
         **changes,
     }
@@ -277,3 +278,18 @@ def test_openapi_and_swagger(client):
     docs = client.get("/docs")
     assert docs.status_code == 200
     assert "/openapi.json" in docs.text
+
+
+def test_difficulty_is_required_and_restricted(client, catalogue):
+    author, _, _, recipe = catalogue
+    path = f"/recipes/{recipe['id']}"
+    payload = recipe_data(author["id"], title="Another recipe")
+    payload.pop("difficulty")
+    for fields in (payload, {**payload, "difficulty": "expert"}, {**payload, "difficulty": None}):
+        request(client, "POST", "/recipes", 422, json=fields)
+        request(client, "PUT", path, 422, json=fields)
+    created = create(client, "recipes", **payload, difficulty="medium")
+    assert created["difficulty"] == "medium"
+    updated = request(client, "PUT", path, 200, json=recipe_data(author["id"], difficulty="hard"))
+    assert updated["difficulty"] == "hard"
+    assert request(client, "GET", path, 200)["difficulty"] == "hard"

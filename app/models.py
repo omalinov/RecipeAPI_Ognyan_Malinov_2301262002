@@ -10,6 +10,12 @@ class Unit(StrEnum):
     PIECES = "pcs"
 
 
+class Difficulty(StrEnum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -66,6 +72,15 @@ class Recipe(Base):
     instructions: Mapped[str] = mapped_column(Text)
     preparation_time: Mapped[int]
     servings: Mapped[int]
+    difficulty: Mapped[Difficulty] = mapped_column(
+        Enum(
+            Difficulty,
+            values_callable=lambda enum: [value.value for value in enum],
+            native_enum=False,
+            create_constraint=True,
+            name="ck_recipe_difficulty",
+        )
+    )
     author_id: Mapped[int] = mapped_column(ForeignKey("authors.id", ondelete="RESTRICT"))
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"))
     author: Mapped[Author] = relationship(back_populates="recipes")
